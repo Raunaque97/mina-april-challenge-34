@@ -13,16 +13,45 @@ import {
   Experimental,
   PublicKey,
   Struct,
+  Group,
+  Encryption,
+  PrivateKey,
+  Provable,
 } from "o1js";
+
+export class EncryptedMessage extends Struct({
+  publicKey: Group,
+  cipherText: Provable.Array(Field, 129),
+}) {
+  static EMPTY = new EncryptedMessage({
+    publicKey: Group.zero,
+    cipherText: Array.from({ length: 129 }, () => Field(0)),
+  });
+  static from(message: CircuitString, publicKey: PublicKey) {
+    return new EncryptedMessage(
+      Encryption.encrypt(message.toFields(), publicKey)
+    );
+  }
+
+  public decrypt(privateKey: PrivateKey): CircuitString {
+    const copy = {
+      publicKey: this.publicKey,
+      cipherText: [...this.cipherText],
+    };
+    return CircuitString.fromCharacters(
+      Encryption.decrypt(copy, privateKey).map((f) => Character.fromFields([f]))
+    );
+  }
+}
 
 export class AgentData extends Struct({
   lastMessageNumber: UInt64,
-  message: CircuitString,
+  message: EncryptedMessage,
   securityCodeHash: Field,
 }) {
   static from(
     lastMessageNumber: UInt64,
-    message: CircuitString,
+    message: EncryptedMessage,
     securityCodeHash: Field
   ): AgentData {
     return new AgentData({ lastMessageNumber, message, securityCodeHash });
@@ -43,19 +72,31 @@ function checkCircuitStringLength(
   }
 }
 
+export class MessageValidityProgramOutput extends Struct({
+  securityCodeHash: Field,
+  encryptedMessage: EncryptedMessage,
+}) {}
+
 export const MessageValidityProgram = Experimental.ZkProgram({
-  publicInput: CircuitString,
-  publicOutput: Field,
+  publicInput: PublicKey,
+  publicOutput: MessageValidityProgramOutput,
   methods: {
     generate: {
-      privateInputs: [CircuitString],
-      method(message: CircuitString, securityCode: CircuitString) {
+      privateInputs: [CircuitString, CircuitString],
+      method(
+        messageRecipient: PublicKey,
+        message: CircuitString,
+        securityCode: CircuitString
+      ) {
         // check message length
         checkCircuitStringLength(message, 12);
         // check security code
         checkCircuitStringLength(securityCode, 2);
         // return hash of securityCode
-        return securityCode.hash();
+        return {
+          encryptedMessage: EncryptedMessage.from(message, messageRecipient),
+          securityCodeHash: securityCode.hash(),
+        };
       },
     },
   },
@@ -83,9 +124,7 @@ export class PrivateSpyManager extends RuntimeModule<MessagesConfig> {
     assert(this.records.get(agentID).isSome.not(), "Agent already exists");
     const agentData = AgentData.from(
       UInt64.zero,
-      CircuitString.fromCharacters(
-        new Array(12).fill(Character.fromString("_"))
-      ),
+      EncryptedMessage.EMPTY,
       securityCodeHash
     );
     this.records.set(agentID, agentData);
@@ -101,11 +140,17 @@ export class PrivateSpyManager extends RuntimeModule<MessagesConfig> {
     assert(this.records.get(agentID).isSome, "Agent does not exist");
     const agentData = this.records.get(agentID).value;
     assert(
+      messageValidityProof.publicInput.equals(this.config.spyMaster),
+      "Not encrypted with Spy Master's public key"
+    );
+    assert(
       messageNumber.greaterThan(agentData.lastMessageNumber),
       "Message number is not greater than last message number"
     );
     assert(
-      messageValidityProof.publicOutput.equals(agentData.securityCodeHash),
+      messageValidityProof.publicOutput.securityCodeHash.equals(
+        agentData.securityCodeHash
+      ),
       "Security Code Hash does not match"
     );
     // update the agent Data
@@ -113,7 +158,7 @@ export class PrivateSpyManager extends RuntimeModule<MessagesConfig> {
       agentID,
       new AgentData({
         lastMessageNumber: messageNumber,
-        message: messageValidityProof.publicInput,
+        message: messageValidityProof.publicOutput.encryptedMessage,
         securityCodeHash: agentData.securityCodeHash,
       })
     );

@@ -72,7 +72,7 @@ describe("privateSpyManager", () => {
     });
     await appChain.start();
     await MessageValidityProgram.compile();
-  });
+  }, 120 * 1000);
 
   it(
     "should be able to add a valid message",
@@ -102,6 +102,7 @@ describe("privateSpyManager", () => {
         "BB_IS_RAT :)".split("").map(Character.fromString)
       );
       const proof = await MessageValidityProgram.generate(
+        spyMaster,
         message,
         securityCode
       );
@@ -126,7 +127,9 @@ describe("privateSpyManager", () => {
       expect(
         agentDataAfter?.lastMessageNumber.toBigInt().toString()
       ).toStrictEqual("99");
-      expect(agentDataAfter?.message).toStrictEqual(message);
+      expect(
+        agentDataAfter.message.decrypt(spyMasterPrivateKey).toString()
+      ).toStrictEqual("BB_IS_RAT :)");
     },
     2 * 60 * 1000
   );
@@ -151,6 +154,7 @@ describe("privateSpyManager", () => {
         "A0".split("").map(Character.fromString)
       );
       const proof = await MessageValidityProgram.generate(
+        spyMaster,
         message,
         wrongSecurityCode
       );
