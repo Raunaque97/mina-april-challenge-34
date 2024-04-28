@@ -1,16 +1,10 @@
-# Protokit: Starter kit
+# Challenge 3
 
-Starter kit for developing privacy enabled application chains. (zkChains)
+#### Is the design of `SpyManager` runtime private?
 
-The default example contains a simple zkChain with one runtime module - `src/Balances.ts`.
-Integration tests for the Balances module can be found in `src/Balances.test.ts`.
+Nothing is private in the design. Anyone can read the **messages**, and also the **security codes** of all the agents. The L2 (protokit chain) needs to keep all the transaction data available so that anyone can verify the correctness of the L2.
 
-**Quick start:**
+#### How to make it more Private?
 
-```zsh
-npx degit proto-kit/starter-kit#develop my-chain
-cd my-chain
-npm install
-npm run test:watch
-```
-
+- instead of storing the `securityCode` directly we can store the hash
+- to hide the messages, we can encrypt it so that only spyMaster can decrypt it later.
